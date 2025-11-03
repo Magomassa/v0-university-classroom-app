@@ -2,7 +2,7 @@ import { DashboardHeader } from "@/components/dashboard-header"
 import { AirportBoard } from "@/components/airport-board"
 import { StatusLegend } from "@/components/status-legend"
 import { Button } from "@/components/ui/button"
-import { PlusCircle } from "lucide-react"
+import { PlusCircle, Calendar } from "lucide-react"
 import Link from "next/link"
 
 export default function DashboardPage() {
@@ -18,6 +18,12 @@ export default function DashboardPage() {
             </div>
             <div className="flex items-center gap-4">
               <StatusLegend />
+              <Link href="/dashboard/horarios">
+                <Button className="bg-teal-600 hover:bg-teal-700 text-white">
+                  <Calendar className="w-4 h-4 mr-2" />
+                  Mi Horario
+                </Button>
+              </Link>
               <Link href="/dashboard/reservar">
                 <Button className="bg-blue-600 hover:bg-blue-700 text-white">
                   <PlusCircle className="w-4 h-4 mr-2" />

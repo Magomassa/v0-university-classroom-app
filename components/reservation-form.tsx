@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,60 +11,102 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Calendar, Clock, MapPin, Users, BookOpen, Plane } from "lucide-react"
 import { useRouter } from "next/navigation"
-
-const buildings = ["Edificio A", "Edificio B", "Edificio C", "Edificio D"]
-
-const classrooms = {
-  "Edificio A": [
-    { gate: "A101", capacity: 40 },
-    { gate: "A102", capacity: 35 },
-    { gate: "A103", capacity: 30 },
-  ],
-  "Edificio B": [
-    { gate: "B201", capacity: 50 },
-    { gate: "B202", capacity: 45 },
-    { gate: "B203", capacity: 40 },
-  ],
-  "Edificio C": [
-    { gate: "C301", capacity: 30 },
-    { gate: "C302", capacity: 25 },
-    { gate: "C303", capacity: 35 },
-  ],
-  "Edificio D": [
-    { gate: "D401", capacity: 60 },
-    { gate: "D402", capacity: 55 },
-    { gate: "D403", capacity: 50 },
-  ],
-}
+import { createBrowserClient } from "@/lib/supabase/client"
 
 const timeSlots = ["08:00 - 10:00", "10:00 - 12:00", "12:00 - 14:00", "14:00 - 16:00", "16:00 - 18:00", "18:00 - 20:00"]
 
 export function ReservationForm() {
   const router = useRouter()
+  const supabase = createBrowserClient()
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [buildings, setBuildings] = useState<any[]>([])
+  const [classrooms, setClassrooms] = useState<any[]>([])
+  const [availableClassrooms, setAvailableClassrooms] = useState<any[]>([])
   const [formData, setFormData] = useState({
     className: "",
-    building: "",
-    classroom: "",
+    buildingId: "",
+    classroomId: "",
     date: "",
     timeSlot: "",
     expectedStudents: "",
     notes: "",
   })
 
-  const availableClassrooms = formData.building ? classrooms[formData.building as keyof typeof classrooms] : []
+  useEffect(() => {
+    const fetchBuildings = async () => {
+      const { data, error } = await supabase.from("edificios").select("*").order("nombre")
+
+      if (!error && data) {
+        setBuildings(data)
+      }
+    }
+
+    fetchBuildings()
+  }, [])
+
+  useEffect(() => {
+    const fetchClassrooms = async () => {
+      const { data, error } = await supabase.from("aulas").select("*").order("numero")
+
+      if (!error && data) {
+        setClassrooms(data)
+      }
+    }
+
+    fetchClassrooms()
+  }, [])
+
+  useEffect(() => {
+    if (formData.buildingId) {
+      const filtered = classrooms.filter((c) => c.edificio_id === formData.buildingId)
+      setAvailableClassrooms(filtered)
+    } else {
+      setAvailableClassrooms([])
+    }
+  }, [formData.buildingId, classrooms])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1500))
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
 
-    // Show success and redirect
-    alert("Reserva solicitada exitosamente. Recibirás confirmación pronto.")
-    setIsSubmitting(false)
-    router.push("/dashboard")
+      if (!user) {
+        alert("Debes iniciar sesión para hacer una reserva")
+        setIsSubmitting(false)
+        return
+      }
+
+      const [startTime, endTime] = formData.timeSlot.split(" - ")
+
+      const { error } = await supabase.from("reservas").insert({
+        profesor_id: user.id,
+        aula_id: formData.classroomId,
+        fecha: formData.date,
+        hora_inicio: startTime,
+        hora_fin: endTime,
+        materia: formData.className,
+        estudiantes_esperados: Number.parseInt(formData.expectedStudents),
+        notas: formData.notes || null,
+        estado: "pendiente",
+      })
+
+      if (error) {
+        console.error("[v0] Error creating reservation:", error)
+        alert("Error al crear la reserva: " + error.message)
+      } else {
+        alert("Reserva creada exitosamente. Los administradores la revisarán pronto.")
+        router.push("/dashboard")
+      }
+    } catch (error) {
+      console.error("[v0] Error:", error)
+      alert("Error al crear la reserva")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -93,12 +135,12 @@ export function ReservationForm() {
             Edificio
           </Label>
           <Select
-            value={formData.building}
+            value={formData.buildingId}
             onValueChange={(value) =>
               setFormData({
                 ...formData,
-                building: value,
-                classroom: "",
+                buildingId: value,
+                classroomId: "",
               })
             }
           >
@@ -107,8 +149,8 @@ export function ReservationForm() {
             </SelectTrigger>
             <SelectContent className="bg-[#0f1f3a] border-[#1e3a5f] text-white">
               {buildings.map((building) => (
-                <SelectItem key={building} value={building} className="focus:bg-[#1e3a5f] focus:text-white">
-                  {building}
+                <SelectItem key={building.id} value={building.id} className="focus:bg-[#1e3a5f] focus:text-white">
+                  {building.nombre}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -122,17 +164,19 @@ export function ReservationForm() {
             Aula (Gate)
           </Label>
           <Select
-            value={formData.classroom}
-            onValueChange={(value) => setFormData({ ...formData, classroom: value })}
-            disabled={!formData.building}
+            value={formData.classroomId}
+            onValueChange={(value) => setFormData({ ...formData, classroomId: value })}
+            disabled={!formData.buildingId}
           >
             <SelectTrigger className="bg-[#0a1628] border-[#1e3a5f] text-white focus:border-blue-500 disabled:opacity-50">
-              <SelectValue placeholder={formData.building ? "Selecciona un aula" : "Primero selecciona un edificio"} />
+              <SelectValue
+                placeholder={formData.buildingId ? "Selecciona un aula" : "Primero selecciona un edificio"}
+              />
             </SelectTrigger>
             <SelectContent className="bg-[#0f1f3a] border-[#1e3a5f] text-white">
               {availableClassrooms.map((classroom) => (
-                <SelectItem key={classroom.gate} value={classroom.gate} className="focus:bg-[#1e3a5f] focus:text-white">
-                  {classroom.gate} - Capacidad: {classroom.capacity}
+                <SelectItem key={classroom.id} value={classroom.id} className="focus:bg-[#1e3a5f] focus:text-white">
+                  {classroom.numero} - Capacidad: {classroom.capacidad}
                 </SelectItem>
               ))}
             </SelectContent>
